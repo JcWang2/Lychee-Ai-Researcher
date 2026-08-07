@@ -1,0 +1,29 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ---- Deployment artifacts (regenerate from source; keep MANIFEST.sha256 tracked) ----
+*.tar.gz
+*.tar.gz.sha256
+
+# ---- Runtime / local state ----
+.v2_backup_*/
+data_cache/
+capabilities/
+nohup.out
+*.log
+
+# ---- Editors / OS ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
