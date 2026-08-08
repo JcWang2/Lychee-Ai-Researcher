@@ -22,6 +22,9 @@ Options:
   --no-target         Do not install into the deployment tree.
   --verify-only       Verify manifest + compare installed tree with this payload; do not copy.
   --run-tests         Run the offline V2 test suite after target installation.
+                      (heavy compiled-harness e2e skipped by default; set
+                      V2_TEST_HARNESS_SKIP=0 to include it; default timeout
+                      V2_TEST_HARNESS_TIMEOUT=1800)
   --python PATH       Python executable for py_compile/import/test checks.
   -h, --help          Show this help.
 
@@ -197,6 +200,12 @@ install_payload "$target_root"
 compile_payload "$target_root"
 compare_tree "$target_root"
 if [ "$run_tests" -eq 1 ]; then
+    # Align with run_v2_a100_lite_v255.sh: on ops installs the heavy
+    # compiled-harness end-to-end subprocess (test_v2_251/test_v2_255) is
+    # skipped by default; set V2_TEST_HARNESS_SKIP=0 to re-validate it, and
+    # V2_TEST_HARNESS_TIMEOUT to raise/lower the subprocess timeout.
+    export V2_TEST_HARNESS_TIMEOUT="${V2_TEST_HARNESS_TIMEOUT:-1800}"
+    export V2_TEST_HARNESS_SKIP="${V2_TEST_HARNESS_SKIP:-1}"
     run_offline_tests "$target_root"
 fi
 printf 'V2_INSTALL_VERIFY=PASS\n'
