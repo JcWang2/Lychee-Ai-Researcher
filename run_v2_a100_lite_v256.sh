@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
-# run_v2_a100_lite_v255.sh - v2.5.5 MLE-Lite fleet launcher (21-loop concurrent).
+# run_v2_a100_lite_v256.sh - v2.5.6 MLE-Lite fleet launcher (21-loop concurrent).
+# v2.5.6 (pushed): root-cause fixes for the last 3 MLE-Lite blockers.
+#   - row-cap swap: compiled tabular harness kept the TEST side of
+#     train_test_split (n-50000 rows) instead of the TRAIN side; and
+#     y_fit was only re-indexed for multi-target tasks. Single-target
+#     classification crashed (TPS-Dec rc=1, [150000, 200000]) and
+#     regression labels were misaligned with X (taxi). Both fixed;
+#     regression test in test_v2_256.py (60k-row cap e2e).
+#   - string-target capability: high-cardinality NON-numeric targets
+#     (text-normalization EN/RU) now get a deterministic source->target
+#     lookup renderer (text.string_lookup.v1) with compound-id join
+#     synthesis (id = sentence_id_token_id) instead of an impossible
+#     classifier over millions of labels; the analyzer detects the
+#     copy-source column from data alone; PACT fallback writes
+#     copy-source artifacts instead of one majority string.
+#   - invocation runnability: fold counts clamp to platform max_folds.
+#   - test_v2_256.py: 57 offline assertions (incl. row-cap + lookup e2e).
+
 # v2.5.5 (pushed): generic MLE-Bench data-layout + sample-column fixes.
 #   - data_layout: localized-prefix tables (<prefix>_train.csv(.zip) with
 #     <prefix>_test* / <prefix>_sample_submission* siblings) are materialized
@@ -59,8 +76,8 @@
 # Default TASK_LIST = the six-task retest set (taxi/nomad/spooky/denoising/
 # jigsaw/leaf). Override freely:
 #   TASK_LIST='new-york-city-taxi-fare-prediction|NYC taxi fare: regression of fare amount (RMSE),nomad2018-predict-transparent-conductors|Nomad transparent conductors: regression of formation energy (RMSLE),spooky-author-identification|Spooky author: classify text author (multi-class logloss),denoising-dirty-documents|Denoising dirty documents: image-to-image pixel regression (RMSE),jigsaw-toxic-comment-classification-challenge|Toxic comments: multi-label logloss on 6 toxicity targets,leaf-classification|Leaf species: classify images into 99 species (multi-class logloss)' \
-#   nohup bash run_v2_a100_lite_v255.sh 24h-mle > run_v2_lite_v255_outer.log 2>&1 &
-# Usage: nohup bash run_v2_a100_lite_v255.sh > run_v2_lite_v255_outer.log 2>&1 &
+#   nohup bash run_v2_a100_lite_v256.sh 24h-mle > run_v2_lite_v256_outer.log 2>&1 &
+# Usage: nohup bash run_v2_a100_lite_v256.sh > run_v2_lite_v256_outer.log 2>&1 &
 set -euo pipefail
 export LLM_MODEL="${LLM_MODEL:-qwen3.8-max}"
 export STATE_ROOT="${STATE_ROOT:-/mnt/data/v2_state_lite}"
@@ -69,8 +86,8 @@ export V2_EXEC_PYTHON="${V2_EXEC_PYTHON:-/opt/conda/envs/agent/bin/python3}"
 export V2_TORCH_CACHE="${V2_TORCH_CACHE:-/mnt/data/v2_torch_cache}"
 export V2_HF_CACHE="${V2_HF_CACHE:-/mnt/data/v2_hf_cache}"
 export V2_LLM_ENV="${V2_LLM_ENV:-/mnt/data/stage42_delivery/latest_ai_scientist_v6.env}"
-export V2_PKG_DIR="${V2_PKG_DIR:-ai_scientist_execution_layer_v2_20260808_v255}"
-export V2_PKG_TAR="${V2_PKG_TAR:-ai_scientist_execution_layer_v2_20260808_v255.tar.gz}"
+export V2_PKG_DIR="${V2_PKG_DIR:-ai_scientist_execution_layer_v2_20260808_v256}"
+export V2_PKG_TAR="${V2_PKG_TAR:-ai_scientist_execution_layer_v2_20260808_v256.tar.gz}"
 export V2_GPU_MAP="${V2_GPU_MAP:-0,1,2,3,4,5}"
 export V2_CPU_THREADS="${V2_CPU_THREADS:-4}"
 # Offline install tests compile+run harness subprocesses; under concurrent

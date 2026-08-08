@@ -350,6 +350,76 @@ _JPEG_SCAN_BYTES = 1 << 20
 _DEFAULT_IMAGE_SIZE = 64
 
 
+# ------------------------------------------------------------------ v2.5.6
+# Generic string-target evidence (measured, never guessed): a high-
+# cardinality NON-numeric target plus a feature column (present in train
+# AND test) whose values equal the target for a large share of rows. This
+# is the structural signature of text-normalization-style tasks where the
+# output is often the input token itself ('after' ~ 'before'); the string
+# lookup capability consumes it. No competition names anywhere.
+_STRING_TARGET_MIN_DISTINCT = 500
+_STRING_TARGET_MIN_OVERLAP = 0.4
+_STRING_TARGET_SCAN_ROWS = 200000
+
+
+def _string_target_source(path, header, test_header, target_col,
+                          target_stats) -> str:
+    """Return the copy-source column name for a string target, or ''.
+
+    Signals:
+      - the target is NOT predominantly numeric;
+      - target distinct count is high (>= 500) - not a small class label;
+      - some feature column equals the target value in >= 40% of a bounded
+        scan (deterministic, at most _STRING_TARGET_SCAN_ROWS rows).
+    """
+    if not target_col or not header or target_col not in header:
+        return ""
+    stats = target_stats or {}
+    rows_n = int(stats.get("rows") or 0)
+    num_n = int(stats.get("numeric_count") or 0)
+    if rows_n > 0 and num_n >= int(rows_n * 0.9):
+        return ""
+    if int(stats.get("distinct") or 0) < _STRING_TARGET_MIN_DISTINCT:
+        return ""
+    test_set = {str(c) for c in (test_header or [])}
+    target_idx = header.index(target_col)
+    cands = []
+    for i, name in enumerate(header):
+        name = str(name)
+        if name == str(target_col) or name not in test_set:
+            continue
+        cands.append((i, name))
+    if not cands:
+        return ""
+    counts = {name: 0 for _, name in cands}
+    total = 0
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace",
+                  newline="") as fh:
+            reader = csv.reader(fh, delimiter=table_delimiter(path))
+            for i, row in enumerate(reader):
+                if i == 0:
+                    continue
+                total += 1
+                tv = (str(row[target_idx]).strip()
+                      if target_idx < len(row) else "")
+                for ci, name in cands:
+                    if ci < len(row) and tv == str(row[ci]).strip():
+                        counts[name] += 1
+                if total >= _STRING_TARGET_SCAN_ROWS:
+                    break
+    except OSError:
+        return ""
+    if total <= 0:
+        return ""
+    best, best_ov = "", -1.0
+    for name, cnt in counts.items():
+        ov = cnt / float(total)
+        if ov > best_ov:
+            best, best_ov = name, ov
+    return best if best_ov >= _STRING_TARGET_MIN_OVERLAP else ""
+
+
 class Analyzer:
     """Data + task profiling (analysis methods for HERA)."""
 
@@ -409,6 +479,14 @@ class Analyzer:
         profile.sample_values = self._column_samples(rows, header, k=3)
         profile.numeric_columns = self._numeric_columns(rows, header)
         profile.target_stats = target_stats
+        # v2.5.6: string-target evidence (copy-source column).
+        if profile.task_type == "classification":
+            _st_src = _string_target_source(
+                train_path, header, test_header,
+                profile.target_column, target_stats)
+            if _st_src:
+                profile.string_target = True
+                profile.string_source_column = _st_src
         profile.image_width, profile.image_height, profile.image_channels = \
             self._probe_image_dims()
         profile.image_file_count = self._count_image_files()
@@ -480,6 +558,11 @@ class Analyzer:
             profile.deep_diagnostics = {"error": str(_exc)[:200]}
         profile.data_notes = self._build_notes(profile)
         profile.data_notes += _deep_notes(profile.deep_diagnostics)
+        if profile.string_target:
+            profile.data_notes += (
+                "\nstring target: distinct=%s source column=%r "
+                "(copy-source/lookup baselines apply)"
+                % (profile.n_classes, profile.string_source_column))
         profile.data_notes += "\n" + self.layout.describe()
         apply_metric_to_profile(profile)
         return profile

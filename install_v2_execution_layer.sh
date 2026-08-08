@@ -163,7 +163,7 @@ run_offline_tests() {
                  test_v2_l1_transactional.py test_v2_closed_loop.py test_v2_23.py \
                  test_v2_234.py test_v2_235.py test_v2_236.py test_v2_237.py \
                  test_v2_240.py test_v2_238.py test_v2_239.py test_v2_250.py \
-                 test_v2_251.py test_v2_252.py test_v2_254.py test_v2_255.py"
+                 test_v2_251.py test_v2_252.py test_v2_254.py test_v2_255.py test_v2_256.py"
     # Guard: every test in the run list must be shipped in the payload AND
     # actually installed into the target. Catches packaging omissions early
     # (e.g. a new test file missing from PAYLOAD_FILES.txt) with a clear
@@ -200,7 +200,7 @@ install_payload "$target_root"
 compile_payload "$target_root"
 compare_tree "$target_root"
 if [ "$run_tests" -eq 1 ]; then
-    # Align with run_v2_a100_lite_v255.sh: on ops installs the heavy
+    # Align with run_v2_a100_lite_v256.sh: on ops installs the heavy
     # compiled-harness end-to-end subprocess (test_v2_251/test_v2_255) is
     # skipped by default; set V2_TEST_HARNESS_SKIP=0 to re-validate it, and
     # V2_TEST_HARNESS_TIMEOUT to raise/lower the subprocess timeout.

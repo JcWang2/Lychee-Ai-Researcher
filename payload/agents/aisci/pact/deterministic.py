@@ -101,16 +101,29 @@ def write_deterministic_artifacts(layout: DatasetLayout, work_dir,
 
     target = getattr(profile, "target_column", "") or ""
     task_type = getattr(profile, "task_type", "classification") or "classification"
+    # v2.5.6: string targets (high-cardinality output with a copy-source
+    # column) fall back to the COPY baseline: predict the source column
+    # value per row instead of a single majority string (which is near
+    # zero accuracy for text-normalization-style tasks).
+    string_copy = (bool(getattr(profile, "string_target", False))
+                   and str(getattr(profile, "string_source_column", "") or ""))
 
     values = []
+    src_values = []
     if train_path is not None and train_path.is_file():
         rows = _read_rows(train_path)
         if rows:
             if target and target in rows[0]:
                 values = [(r.get(target) or "").strip() for r in rows]
+                if string_copy and str(profile.string_source_column) in rows[0]:
+                    src_values = [(r.get(str(profile.string_source_column)) or "")
+                                  .strip() for r in rows]
             elif len(rows[0]) > 1:
                 values = [list(r.values())[-1].strip() for r in rows]
-    pred = majority_prediction(values, task_type)
+    if string_copy and src_values:
+        pred = "copy"
+    else:
+        pred = majority_prediction(values, task_type)
 
     submission_written = False
     src_rows = None
@@ -123,17 +136,34 @@ def write_deterministic_artifacts(layout: DatasetLayout, work_dir,
         header = list(src_rows[0].keys())
         id_col = header[0]
         pred_cols = header[1:]
+        # copy-source fallback needs the source value per test row; the
+        # sample may not carry the source column, so read test.csv and
+        # align by row order (mlebench sample rows are in test order).
+        copy_per_row = []
+        if string_copy:
+            src_col = str(profile.string_source_column)
+            if src_col in header:
+                copy_per_row = [(row.get(src_col) or "").strip()
+                                for row in src_rows]
+            elif test_path is not None and test_path.is_file():
+                trows = _read_rows(test_path)
+                if trows and src_col in trows[0]:
+                    copy_per_row = [(r.get(src_col) or "").strip()
+                                    for r in trows]
         _tmp_sub = work_dir / "submission.csv.tmp"
         with open(_tmp_sub, "w", encoding="utf-8", newline="") as fh:
             writer = csv.writer(fh, lineterminator=lt)
             writer.writerow(header)
-            for row in src_rows:
+            for _ri, row in enumerate(src_rows):
                 out = []
                 for col in header:
                     if col == id_col:
                         out.append(row.get(col, ""))
                     elif len(pred_cols) > 1:
                         out.append(1.0 if col == str(pred) else 0.0)
+                    elif copy_per_row:
+                        out.append(copy_per_row[_ri]
+                                   if _ri < len(copy_per_row) else pred)
                     else:
                         out.append(pred)
                 writer.writerow(out)
@@ -166,8 +196,12 @@ def write_deterministic_artifacts(layout: DatasetLayout, work_dir,
                     writer.writerow([v, "%.6f" % freqs.get(pos, 0.5)])
             else:
                 writer.writerow(["true", "pred"])
-                for v in values:
-                    writer.writerow([v, pred])
+                if string_copy and src_values:
+                    for v, s in zip(values, src_values):
+                        writer.writerow([v, s])
+                else:
+                    for v in values:
+                        writer.writerow([v, pred])
         os.replace(_tmp_oof, work_dir / "oof.csv")
         oof_written = True
 

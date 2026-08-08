@@ -1154,13 +1154,26 @@ class ClosedLoop:
             compat = self.registry.compatible(modality, task_type, metric)
             if not compat:
                 return {}
-            spec = compat[0]
+            spec = None
+            if getattr(profile, "string_target", False):
+                # v2.5.6: string targets (high-cardinality non-numeric
+                # output with a copy-source column) use the deterministic
+                # string-lookup capability as the platform fallback; the
+                # tabular classifiers cannot express millions of labels.
+                _sl = self.registry.get("text.string_lookup.v1")
+                if _sl is not None and not _sl.broken:
+                    spec = _sl
+            if spec is None:
+                spec = compat[0]
             inv = self.compiler.normalize(MethodInvocationV1(
                 method_id=spec.method_id,
                 hypothesis="Child %d: default %s on %s (axis=%s)"
                            % (child_index, spec.method_id,
                               grant.get("selected_branch_id"),
                               grant.get("mutation_axis"))))
+            inv = clamp_invocation_runnability(
+                inv, getattr(self, "resource", None) or {},
+                self.registry)
             return inv.to_dict()
 
         def proposer(child_index: int, g: dict, evidence: str) -> dict:
@@ -1260,6 +1273,9 @@ class ClosedLoop:
                 inv = None
             if inv is None:
                 return deterministic
+            inv = clamp_invocation_runnability(
+                inv, getattr(self, "resource", None) or {},
+                self.registry)
             return {
                 "hypothesis": (inv.hypothesis
                                or "Child %d on %s"
@@ -1316,6 +1332,10 @@ class ClosedLoop:
                 "image_height": getattr(profile, "image_height", 0),
                 "metric_name": getattr(profile, "metric_name", ""),
                 "metric_direction": getattr(profile, "metric_direction", ""),
+                "string_target": bool(
+                    getattr(profile, "string_target", False)),
+                "string_source_column": (
+                    getattr(profile, "string_source_column", "") or ""),
                 "train_rows_cap": int(
                     (getattr(self, "resource", None) or {}).get(
                         "train_rows_cap") or 0),
@@ -1956,6 +1976,10 @@ class ClosedLoop:
         manifest["text_columns"] = list(
             getattr(profile, "text_columns", None) or [])
         manifest["time_column"] = getattr(profile, "time_column", "") or ""
+        manifest["string_target"] = bool(
+            getattr(profile, "string_target", False))
+        manifest["string_source_column"] = (
+            getattr(profile, "string_source_column", "") or "")
         spec = get_metric_spec(self.competition)
         manifest["metric_name"] = spec["metric_name"]
         manifest["metric_direction"] = spec["metric_direction"]
@@ -1993,6 +2017,45 @@ class ClosedLoop:
         if best_child is None or self._is_better(metric, best_child):
             return metric
         return best_child
+
+
+def clamp_invocation_runnability(inv, resource=None, registry=None):
+    """Platform runnability clamps (data-driven, never research choices).
+
+    folds <= resource max_folds: on large-row datasets the derived
+    resource profile caps fold counts (max_folds=2 above 10k rows) so a
+    trial fits inside its budget; the LLM may choose fewer folds but
+    never more. Applied to EVERY compiled invocation (LLM-chosen and
+    deterministic fallback alike)."""
+    if inv is None or not getattr(inv, "method_id", ""):
+        return inv
+    params = dict(inv.params or {})
+    max_folds = 0
+    if resource:
+        try:
+            max_folds = int(resource.get("max_folds") or 0)
+        except (TypeError, ValueError):
+            max_folds = 0
+    if max_folds > 0 and registry is not None:
+        spec = registry.get(inv.method_id)
+        default_folds = 0
+        if spec is not None and (spec.parameter_schema or {}).get("folds"):
+            try:
+                default_folds = int(
+                    (spec.parameter_schema["folds"].get("default") or 0))
+            except (TypeError, ValueError):
+                default_folds = 0
+        cur = 0
+        try:
+            cur = int(params.get("folds") or default_folds or 0)
+        except (TypeError, ValueError):
+            cur = 0
+        if cur > max_folds:
+            params["folds"] = int(max_folds)
+            print("[closed-loop] runnability: folds %d -> %d (platform "
+                  "max_folds)" % (cur, max_folds), flush=True)
+    inv.params = params
+    return inv
 
 
 def _extract_json(response: str) -> Optional[dict]:

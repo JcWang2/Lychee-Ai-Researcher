@@ -88,6 +88,10 @@ class AnalysisProfile:
     datetime_columns: List[str] = field(default_factory=list)  # all content-verified date/time columns (v2.5.1)
     feature_dim: int = 0               # numeric feature count (tabular) else column count
     n_classes: int = 0                 # distinct target values (classification)
+    # v2.5.6: high-cardinality STRING target with a source feature column
+    # whose values equal the target (copy source). Measured, never guessed.
+    string_target: bool = False        # string lookup renderer applies
+    string_source_column: str = ""    # source column for the lookup
 
     def to_dict(self) -> dict:
         return asdict(self)

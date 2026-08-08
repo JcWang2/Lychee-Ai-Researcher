@@ -1,3 +1,39 @@
+## v2.5.6 - label alignment + string-target lookup chain (2026-08-09)
+
+Delivery package `ai_scientist_execution_layer_v2_20260808_v256` (includes all
+v2.5.1-v2.5.5 changes).
+
+### Root-cause goals: TPS-Dec / Taxi / Text-norm EN - the last 3 MLE-Lite blockers
+
+1. **row-cap label alignment (TPS-Dec rc=1 / Taxi misalignment)**
+   - The compiled tabular harness row-cap block kept the *TEST side* of
+     `train_test_split` (n-50000 rows) instead of the TRAIN side, and
+     `y_fit` was only re-indexed for multi-target tasks.
+   - Single-target classification crashed (TPS-Dec `[150000, 200000]`);
+     regression labels were misaligned with `X` (taxi unstable / rc=-9).
+   - Fix: keep the TRAIN side + unconditional `y_fit = y_fit[sel_idx]`
+     (60k-row capped terminal e2e in test_v2_256.py).
+2. **string-target support (Text-norm EN/RU)**
+   - New generic `text.string_lookup.v1`: deterministic source->target
+     lookup for high-cardinality non-numeric targets (e.g. `after`) from
+     the source column (`before`), with compound-id join synthesis
+     (`id = sentence_id_token_id`).
+   - Analyzer measures `string_target` + `string_source_column` from data
+     alone - no competition-name hardcoding; PACT host fallback writes
+     per-row copy-source artifacts instead of one global majority string.
+3. **invocation runnability clamp**: fold counts clamp to platform
+   `max_folds` (fits inside the row-derived resource budget).
+4. **offline coverage**
+   - `test_v2_256.py`: 57 assertions (row-cap static+e2e, string-lookup
+     declared/render/e2e, analyzer detection, clamp, deterministic
+     copy-source, no competition-name hardcoding).
+
+Tests: `python test_v2_256.py` -> `RESULT=PASS ok=57 fail=0`;
+metrics/contracts/pact/hera/stage_controller/resource_profiler/l1/closed_loop/
+23/234/235/236/237/238/239/240/250/251/252/254/255/256 all PASS.
+Install/run: see `A100_DEPLOYMENT.md`; monitor: `bash monitor_v2_v256_live.sh`.
+
+---
 ## v2.5.5 — 数据布局治本修复：sample 列规则 + 前缀图片标签（2026-08-08）
 
 交付包 `ai_scientist_execution_layer_v2_20260808_v255`（含 v2.5.1–v2.5.4 全部改动）。

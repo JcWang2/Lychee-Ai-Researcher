@@ -704,8 +704,34 @@ BUILTIN_SPECS: List[MethodSpec] = [
                     "date column with a HistGradientBoosting head and a "
                     "strict time-holdout validation (no random-split "
                     "leakage)."),
+    MethodSpec(
+        method_id="text.string_lookup.v1",
+        family="string_lookup",
+        supported_modalities=["tabular", "text", "mixed"],
+        supported_tasks=["classification"],
+        metric_outputs={"accuracy": "class"},
+        parameter_schema={
+            "min_count": {"type": "int", "min": 1, "max": 100000,
+                          "default": 1},
+            "val_seed": {"type": "int", "min": 0, "max": 99999,
+                         "default": 42},
+        },
+        preprocessing_options=[],
+        validation_schemes=["single_holdout"],
+        validation_policy="fixed",
+        default_validation="single_holdout",
+        default_max_train_rows=1500000,
+        renderer="text_string_lookup",
+        default_preprocessing=[],
+        resource_model="lookup_cost_v1",
+        gpu=False,
+        description="Deterministic string-target lookup: most-frequent "
+                    "mapping from a source column to the target with a "
+                    "copy-source fallback (the generic baseline for "
+                    "high-cardinality string targets such as text "
+                    "normalization; renders in seconds, never trains a "
+                    "classifier over millions of distinct labels)."),
 ]
-
 
 class CapabilityRegistry:
     """Declarative capability registry with ephemeral persistence."""
