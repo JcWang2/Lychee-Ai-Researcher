@@ -258,11 +258,23 @@ def _is_json_box_value(value: str) -> bool:
     return '"x"' in low and ('"y"' in low or '"w"' in low or '"h"' in low)
 
 
+_TIME_FORMATS = (
+    "%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S.%f", "%m/%d/%Y", "%d/%m/%Y", "%d-%b-%Y",
+    "%b %d, %Y", "%B %d, %Y", "%Y-%m", "%Y%m%d", "%b", "%B",
+)
+# v2.5.1: common timezone suffixes appended to Kaggle timestamps
+# ("2009-06-15 17:26:21 UTC", "2011-01-01 00:00:00 +0000", "...Z").
+_TZ_SUFFIX_RE = re.compile(r"(?i)(?:\s*(?:utc|gmt|z|[+-]\d{2}:?\d{2})\s*)$")
+
+
 def _looks_like_date(value: str) -> bool:
     """Deterministic date-likeness for sampled CSV values.
 
-    ISO plus common Kaggle date layouts. Pure numbers are never date
-    evidence, so numeric 'year'/'month' columns stay numeric."""
+    ISO plus common Kaggle date layouts, including timezone suffixes and
+    ISO 'T' separators. Pure numbers are never date evidence, so numeric
+    'year'/'month' columns stay numeric."""
     v = str(value).strip()
     if not v or len(v) < 6:
         return False
@@ -271,14 +283,19 @@ def _looks_like_date(value: str) -> bool:
         return False
     except (TypeError, ValueError):
         pass
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S",
-                "%Y/%m/%d %H:%M:%S", "%m/%d/%Y", "%d/%m/%Y",
-                "%d-%b-%Y", "%b %d, %Y", "%Y-%m", "%Y%m%d", "%b", "%B"):
-        try:
-            datetime.strptime(v, fmt)
-            return True
-        except (TypeError, ValueError):
-            continue
+    candidates = [v]
+    m = _TZ_SUFFIX_RE.search(v)
+    if m:
+        stripped = v[:m.start()].strip()
+        if stripped:
+            candidates.append(stripped)
+    for cand in candidates:
+        for fmt in _TIME_FORMATS:
+            try:
+                datetime.strptime(cand, fmt)
+                return True
+            except (TypeError, ValueError):
+                continue
     return False
 
 
@@ -306,6 +323,11 @@ def _column_text_signal(rows: List[List[str]], header: List[str],
     long_ratio = sum(1 for v in seen if len(v) >= 40) / float(len(seen))
     unique_ratio = len(set(seen)) / float(len(seen))
     if nonnum < 0.6:
+        return False, 0.0
+    # v2.5.1: timestamps look prose-ish (spaces) but are structured dates;
+    # a column whose sampled values mostly parse as dates is never text.
+    date_like = sum(1 for v in seen if _looks_like_date(v)) / float(len(seen))
+    if date_like >= 0.5:
         return False, 0.0
     # id/code guard: near-unique short tokens are keys, not prose
     if unique_ratio >= 0.9 and words_avg <= 1.5 and space_ratio < 0.5:
@@ -394,6 +416,7 @@ class Analyzer:
         profile.text_columns = self._text_columns(
             rows, header, profile.target_column)
         profile.time_column = self._time_column(rows, header)
+        profile.datetime_columns = self._datetime_columns(rows, header)
         strong_text = False
         if profile.text_columns and header:
             for col_idx, name in enumerate(header):
@@ -731,8 +754,11 @@ class Analyzer:
         non-numeric prose); a column without a hint needs strong content
         evidence. Column names alone are NEVER sufficient."""
         out = []
+        datetime_cols = set(self._datetime_columns(rows, header))
         for col_idx, name in enumerate(header):
             if str(name) == str(target):
+                continue
+            if str(name) in datetime_cols:
                 continue
             is_text, score = _column_text_signal(
                 rows, header, col_idx, sample_limit=sample_limit)
@@ -744,16 +770,15 @@ class Analyzer:
                 out.append(str(name))
         return out
 
-    def _time_column(self, rows: List[List[str]], header: List[str],
-                     sample_limit: int = 30) -> str:
-        """Date/time column evidence: name hint AND parseable date values.
+    def _datetime_columns(self, rows: List[List[str]], header: List[str],
+                          sample_limit: int = 30) -> List[str]:
+        """Every content-verified date/time column (v2.5.1).
 
-        Numeric 'year'/'month' columns are NOT evidence (pure numbers are
-        rejected by _looks_like_date); a real timestamp/date column is."""
+        Parseable date values are the only evidence. Numeric 'year'/'month'
+        columns are NOT evidence (pure numbers are rejected by
+        _looks_like_date); a real timestamp/date column is."""
+        out = []
         for col_idx, name in enumerate(header):
-            lowered = str(name).strip().lower()
-            if not any(h in lowered for h in _DATE_COLUMN_HINTS):
-                continue
             vals = [str(row[col_idx]).strip() for row in rows
                     if col_idx < len(row) and str(row[col_idx]).strip()]
             vals = vals[:sample_limit]
@@ -761,8 +786,25 @@ class Analyzer:
                 continue
             dates = sum(1 for v in vals if _looks_like_date(v))
             if dates >= max(2, int(len(vals) * 0.5)):
-                return str(name)
-        return ""
+                out.append(str(name))
+        return out
+
+    def _time_column(self, rows: List[List[str]], header: List[str],
+                     sample_limit: int = 30) -> str:
+        """Primary date/time column: parseable evidence, name-hint first.
+
+        The primary column feeds the timeseries lag renderer; every
+        detected column is also exposed as datetime_columns so tabular
+        renders can derive calendar/elapsed features instead of ordinal
+        encoding timestamps."""
+        cols = self._datetime_columns(rows, header, sample_limit=sample_limit)
+        if not cols:
+            return ""
+        for c in cols:
+            lowered = str(c).strip().lower()
+            if any(h in lowered for h in _DATE_COLUMN_HINTS):
+                return c
+        return cols[0]
 
     def _id_column(self, header: List[str]) -> str:
         """Mirror the compiled harness id rule: sample-submission first
@@ -890,6 +932,9 @@ class Analyzer:
         if profile.time_column:
             lines.append("Time column (date evidence): %s"
                          % profile.time_column)
+        if profile.datetime_columns:
+            lines.append("Datetime columns (content-verified): %s"
+                         % ", ".join(profile.datetime_columns))
         if profile.image_width or profile.image_height:
             lines.append("Image dims (probe): %dx%d ch=%d" % (
                 profile.image_width, profile.image_height, profile.image_channels))

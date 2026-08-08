@@ -753,6 +753,73 @@ def _resolve_test_path(public_dir: Path, private_dir: Path,
     return None, False
 
 
+def _localized_table_entries(entries, prefix, kind):
+    hits = []
+    for p in entries:
+        if not p.is_file():
+            continue
+        name = p.name
+        base = name[:-len(".zip")] if name.lower().endswith(".csv.zip") else name
+        if not base.lower().endswith(".csv"):
+            continue
+        if base.lower().startswith(prefix.lower() + "_" + kind):
+            hits.append(p)
+    hits.sort(key=lambda p: p.name)
+    return hits[0] if hits else None
+
+
+def _materialize_localized_table(src, dst):
+    import shutil
+    try:
+        if src.name.lower().endswith(".csv.zip"):
+            import zipfile
+            with zipfile.ZipFile(str(src)) as zf:
+                members = [m for m in zf.namelist() if m.lower().endswith(".csv")]
+                if not members:
+                    return False
+                member = sorted(members, key=len)[-1]
+                with zf.open(member) as fin, open(str(dst), "wb") as fout:
+                    shutil.copyfileobj(fin, fout, 1 << 20)
+        else:
+            shutil.copy2(str(src), str(dst))
+        return dst.is_file() and dst.stat().st_size > 0
+    except (OSError, EOFError, KeyError, ValueError):
+        return False
+
+
+def _materialize_localized_tables(public_dir):
+    # MLE-Bench prepare ships a few competitions with localized table
+    # prefixes and zips (text-normalization en_/ru_ style). Prefix-agnostic
+    # scan: any <prefix>_train.csv(.zip) with sibling <prefix>_test* and
+    # <prefix>_sample_submission* tables is materialized to canonical
+    # train.csv / test.csv / sample_submission.csv. Idempotent.
+    if _first_file(public_dir, _TRAIN_FILE_NAMES) is not None:
+        return False
+    try:
+        entries = list(public_dir.iterdir())
+    except OSError:
+        return False
+    trains = {}
+    for p in entries:
+        if not p.is_file():
+            continue
+        name = p.name
+        base = name[:-len(".zip")] if name.lower().endswith(".csv.zip") else name
+        if base.lower().endswith("_train.csv"):
+            prefix = base[:-len("_train.csv")]
+            trains.setdefault(prefix, p)
+    for prefix in sorted(trains):
+        train_src = trains[prefix]
+        test_src = _localized_table_entries(entries, prefix, "test")
+        sample_src = _localized_table_entries(entries, prefix, "sample_submission")
+        if test_src is None or sample_src is None:
+            continue
+        if (_materialize_localized_table(train_src, public_dir / "train.csv")
+                and _materialize_localized_table(test_src, public_dir / "test.csv")
+                and _materialize_localized_table(sample_src, public_dir / "sample_submission.csv")):
+            return True
+    return False
+
 def resolve_dataset_layout(data_dir, sample_path: Optional[str] = None) -> DatasetLayout:
     root = Path(data_dir).expanduser()
     for public_dir, private_dir, layout_name in _candidate_pairs(root):
@@ -761,6 +828,11 @@ def resolve_dataset_layout(data_dir, sample_path: Optional[str] = None) -> Datas
         train_path = _first_file(public_dir, _TRAIN_FILE_NAMES)
         if train_path is None and public_dir == root:
             train_path = _first_file(root, _TRAIN_FILE_NAMES)
+        if train_path is None:
+            # v2.5.5: localized-prefix tables (MLE-Bench prepare quirk).
+            # Prefix-agnostic materialization; never competition-specific.
+            if _materialize_localized_tables(public_dir):
+                train_path = _first_file(public_dir, _TRAIN_FILE_NAMES)
         test_path, test_has_labels = _resolve_test_path(public_dir,
                                                         private_dir, root)
         train_image_dir = _first_image_dir(public_dir, _TRAIN_IMAGE_DIR_NAMES)

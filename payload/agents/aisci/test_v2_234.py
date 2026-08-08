@@ -46,8 +46,9 @@ def _run(code, workdir, env):
     src.write_text(code, encoding="utf-8")
     e = dict(os.environ)
     e.update(env)
+    timeout = int(os.environ.get("V2_TEST_HARNESS_TIMEOUT", "600"))
     return subprocess.run([sys.executable, str(src)], cwd=str(workdir),
-                          env=e, capture_output=True, text=True, timeout=600)
+                          env=e, capture_output=True, text=True, timeout=timeout)
 
 
 def test_multi_output_regression():

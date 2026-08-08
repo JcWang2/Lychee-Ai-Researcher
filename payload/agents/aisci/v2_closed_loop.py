@@ -1191,6 +1191,19 @@ class ClosedLoop:
                         profile, str(data.get("capability_gap"))[:400])
                     if spec is not None:
                         mid = spec.method_id
+                _rr_raw = (data.get("resource_request")
+                           if isinstance(data.get("resource_request"), dict)
+                           else {})
+                _rr = {}
+                try:
+                    _mtr = int(_rr_raw.get("max_train_rows") or 0)
+                except (TypeError, ValueError):
+                    _mtr = 0
+                if _mtr > 0:
+                    _cap = int((getattr(self, "resource", None) or {}).get(
+                        "train_rows_cap") or 0)
+                    _rr["max_train_rows"] = (
+                        _mtr if _cap <= 0 else min(_mtr, _cap))
                 candidate = MethodInvocationV1(
                     method_id=mid,
                     params=(data.get("params")
@@ -1201,6 +1214,7 @@ class ClosedLoop:
                     validation=str(data.get("validation")
                                    or "stratified_kfold"),
                     hypothesis=str(data["hypothesis"])[:400],
+                    resource_request=_rr,
                 )
                 inv = self.compiler.normalize(candidate)
                 ok, reason = self.compiler.validate(inv, profile, manifest)
@@ -1302,6 +1316,9 @@ class ClosedLoop:
                 "image_height": getattr(profile, "image_height", 0),
                 "metric_name": getattr(profile, "metric_name", ""),
                 "metric_direction": getattr(profile, "metric_direction", ""),
+                "train_rows_cap": int(
+                    (getattr(self, "resource", None) or {}).get(
+                        "train_rows_cap") or 0),
             }
         if manifest:
             contract["metric_name"] = manifest.get("metric_name") \
@@ -1334,7 +1351,12 @@ class ClosedLoop:
             + 'Return ONLY a JSON object of the form '
               '{"method_id": "...", "params": {...}, '
               '"preprocessing": [...], "validation": "...", '
-              '"hypothesis": "..."}.\n'
+              '"hypothesis": "...", "resource_request": '
+              '{"max_train_rows": 20000}}.\n'
+            + "resource_request is OPTIONAL; set max_train_rows only to "
+              "train on a SMALLER subset than the platform default cap "
+              "(DATASET CONTRACT train_rows_cap). Never exceed the cap; "
+              "omit to use the platform default.\n"
             + "params keys MUST exist in the chosen method's parameter "
               "schema; preprocessing entries MUST be from its offered "
               "options; validation MUST be from its schemes. Keep the "

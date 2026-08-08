@@ -254,6 +254,32 @@ else
 fi
 fi
 
+# v2.5.5: layout preflight. TASK_DATA_OK now means resolve_dataset_layout
+# succeeds - MLE-Bench prepare quirks (localized prefixes, zipped tables)
+# are caught BEFORE launch instead of a silent closed-loop crash. Generic;
+# no competition names. Disable with V2_DATA_PREFLIGHT=0.
+preflight_layout() {
+    local task="$1" dir="$2" out rc
+    [ "${V2_DATA_PREFLIGHT:-1}" = "1" ] || return 0
+    out="$("$PYTHON_BIN" -c "
+import sys
+sys.path.insert(0, sys.argv[1])
+from data_layout import resolve_dataset_layout
+try:
+    d = resolve_dataset_layout(sys.argv[2])
+except Exception as e:
+    print('PREFLIGHT_RESOLVE_FAIL %r' % (e,))
+    sys.exit(1)
+print('layout=%s train=%s test=%s labels=%s' % (d.layout_name, d.train_path.name, d.test_path.name, d.test_has_labels))
+" "$TARGET" "$dir" 2>&1)"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "  preflight: $out"
+        return 0
+    fi
+    echo "  preflight FAIL: $out" >&2
+    return 1
+}
 echo "===== [4/7] task data readiness ====="
 # Candidate data roots. Override with TASK_DATA_ROOT=<root> if your layout differs.
 CANDIDATE_ROOTS=(
@@ -286,9 +312,14 @@ for entry in "${TASKS[@]}"; do
     task="${entry%%|*}"
     dir="$(resolve_data_dir "$task" || true)"
     if [ -n "$dir" ]; then
-        DATA_DIRS+=("$task|$dir")
-        echo "TASK_DATA_OK: $task -> $dir"
-        ls "$dir" | head -5
+        if preflight_layout "$task" "$dir"; then
+            DATA_DIRS+=("$task|$dir")
+            echo "TASK_DATA_OK: $task -> $dir"
+            ls "$dir" | head -5
+        else
+            DATA_DIRS+=("$task|")
+            echo "TASK_DATA_FAIL: $task (layout not resolvable; skipping)"
+        fi
     else
         DATA_DIRS+=("$task|")
         echo "TASK_DATA_WARN: $task not found under any candidate root (set TASK_DATA_ROOT)"

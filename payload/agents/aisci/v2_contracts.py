@@ -85,6 +85,7 @@ class AnalysisProfile:
     # v2.3.2 generic content evidence (measured, never guessed)
     text_columns: List[str] = field(default_factory=list)  # content-verified free-text feature columns
     time_column: str = ""               # date/time column evidence for timeseries tasks
+    datetime_columns: List[str] = field(default_factory=list)  # all content-verified date/time columns (v2.5.1)
     feature_dim: int = 0               # numeric feature count (tabular) else column count
     n_classes: int = 0                 # distinct target values (classification)
 

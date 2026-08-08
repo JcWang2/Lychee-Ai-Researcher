@@ -287,7 +287,8 @@ def test_pixel_harness_execution():
         code_path.write_text(code, encoding="utf-8")
         proc = subprocess.run([sys.executable, str(code_path)],
                               cwd=str(work), env=env, capture_output=True,
-                              text=True, timeout=180)
+                              text=True,
+                              timeout=int(os.environ.get("V2_TEST_HARNESS_TIMEOUT", "180")))
         check("harness: rc=0", proc.returncode == 0,
               (proc.stderr or proc.stdout)[-400:])
         out = proc.stdout or ""

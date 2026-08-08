@@ -449,6 +449,11 @@ def test_executor_container_fallback():
 def test_executor_docker_cmd_shape():
     from pact.executor import Executor
     tmp, work, sub = _make_env()
+    # Launchers export V2_CPU_THREADS (run_v2_a100_lite_v254.sh sets it to 4);
+    # this test pins the DEFAULT 8-thread cap, so the env must not leak in
+    # (same convention as the V2_HF_CACHE / V2_EXEC_IMAGE isolation above).
+    _old_threads = os.environ.get("V2_CPU_THREADS")
+    os.environ.pop("V2_CPU_THREADS", None)
     try:
         # Build the manifest exactly like v2_closed_loop does (real path).
         from data_layout import resolve_dataset_layout
@@ -498,6 +503,10 @@ def test_executor_docker_cmd_shape():
         check("docker cmd never mounts private/gold",
               "private" not in joined, joined)
     finally:
+        if _old_threads is None:
+            os.environ.pop("V2_CPU_THREADS", None)
+        else:
+            os.environ["V2_CPU_THREADS"] = _old_threads
         shutil.rmtree(tmp, ignore_errors=True)
 
 

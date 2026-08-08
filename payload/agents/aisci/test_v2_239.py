@@ -283,10 +283,19 @@ def test_executor_timeout_bytes_mode():
     # (new-york-city-taxi-fare-prediction, 2026-08-07: 19 committed trials,
     # 0 receipts). The executor must run in bytes mode and surface a
     # timed_out ExecOutcome instead of raising.
+    # v2.5.0: this unit test must exercise the HOST subprocess path; the
+    # launcher exports V2_EXEC_IMAGE, which Executor.__init__ would pick up
+    # and switch to container mode (then _mount_root() fail-closes on a
+    # manifest-less unit test). Pop the ambient launcher env like the
+    # V2_HF_CACHE sibling test below does.
+    import unittest.mock as mock
     tmp = Path(tempfile.mkdtemp(prefix="v239_to_"))
     try:
-        ex = Executor(tmp / "work", exec_image="", docker_bin="docker",
-                      python_bin=sys.executable)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("V2_EXEC_IMAGE", None)
+            os.environ.pop("V2_DOCKER_BIN", None)
+            ex = Executor(tmp / "work", exec_image="", docker_bin="docker",
+                          python_bin=sys.executable)
         code = "import time\ntime.sleep(60)\n"
         spec = TrialSpec.seal("demo", ResearchPlan(), code)
         outcome = ex.run(spec, timeout_seconds=2)

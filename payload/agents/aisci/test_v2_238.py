@@ -137,7 +137,8 @@ def _run_harness(code, workdir, env):
     e["PYTHONIOENCODING"] = "utf-8"
     e.update(env)
     r = subprocess.run([sys.executable, str(src)], cwd=str(workdir),
-                       env=e, capture_output=True, text=True, timeout=300)
+                       env=e, capture_output=True, text=True,
+                       timeout=int(os.environ.get("V2_TEST_HARNESS_TIMEOUT", "300")))
     return r
 
 

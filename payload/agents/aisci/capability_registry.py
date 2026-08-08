@@ -55,6 +55,20 @@ class MethodSpec:
     source_code: str = ""          # ephemeral: synthesized template body
     template_hash: str = ""        # ephemeral: sha256(source_code); built-in: filled by compiler
     broken: bool = False           # ephemeral capability failed at trial time
+    # v2.5.2: declarative runnability defaults (replaces method-prefix
+    # if/else in the compiler normalize()). Values are safe platform
+    # defaults, never research choices; HERA may override preprocessing
+    # and validation explicitly.
+    default_preprocessing: List[str] = field(default_factory=list)
+    default_validation: str = ""       # "" -> "stratified_kfold"
+    validation_policy: str = "any"    # "any" | "fixed" (fixed forces
+                                      # default_validation; used by
+                                      # templates that implement exactly
+                                      # one honest split)
+    default_max_train_rows: int = 0    # 0 = no platform row cap; >0 caps
+                                      # MAX_TRAIN_ROWS in compiled templates
+                                      # (runnability default; HERA may still
+                                      # request a smaller cap explicitly)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -95,10 +109,12 @@ BUILTIN_SPECS: List[MethodSpec] = [
                          "default": 42},
             "folds": {"type": "int", "min": 1, "max": 5, "default": 5},
         },
-        preprocessing_options=["missing_value_impute", "frequency_encoding",
+        preprocessing_options=["datetime_derive", "datetime_ordinal", "datetime_drop", "missing_value_impute", "frequency_encoding",
                                "standard_scaling"],
         validation_schemes=["stratified_kfold", "single_holdout"],
+        default_max_train_rows=50000,
         renderer="tabular_linear",
+        default_preprocessing=["missing_value_impute"],
         resource_model="sklearn_cost_v1",
         gpu=False,
         description="LogisticRegression / Ridge on tabular features with "
@@ -137,13 +153,61 @@ BUILTIN_SPECS: List[MethodSpec] = [
                          "default": 42},
             "folds": {"type": "int", "min": 1, "max": 5, "default": 5},
         },
-        preprocessing_options=["missing_value_native", "frequency_encoding"],
+        preprocessing_options=["datetime_derive", "datetime_ordinal", "datetime_drop", "missing_value_native", "frequency_encoding"],
         validation_schemes=["stratified_kfold", "single_holdout"],
+        default_max_train_rows=50000,
         renderer="tabular_histgb",
+        default_preprocessing=[],
         resource_model="sklearn_cost_v1",
         gpu=False,
         description="HistGradientBoosting classifier/regressor (sklearn, "
                     "native NaN support, GPU-free, fast)."),
+    MethodSpec(
+        method_id="tabular.datetime_feature_histgb.v1",
+        family="datetime_feature",
+        supported_modalities=["tabular"],
+        supported_tasks=["classification", "regression", "timeseries"],
+        metric_outputs={"logloss": "proba", "weighted_logloss": "proba",
+                        "kl_div": "proba", "mean_auc_multilabel": "proba",
+                        "auc": "proba", "binary_logloss": "proba",
+                        "accuracy": "class", "f1_macro": "class",
+                        "f1_micro": "class", "f1_binary": "class",
+                        "f0_5": "class", "mcc": "class", "qwk": "class",
+                        "rmse": "regression", "mae": "regression",
+                        "r2": "regression", "spearman": "regression",
+                        "pearson": "regression", "log_mae": "regression",
+                        "rmsle": "regression", "kendall_tau": "regression",
+                        "mean_angular_error": "regression"},
+        parameter_schema={
+            "learning_rate": {"type": "float", "min": 0.005, "max": 0.3,
+                              "log": True, "default": 0.05},
+            "max_leaf_nodes": {"type": "int", "min": 8, "max": 256,
+                               "default": 64},
+            "max_iter": {"type": "int", "min": 50, "max": 1500,
+                         "default": 300},
+            "l2_regularization": {"type": "float", "min": 0.0, "max": 10.0,
+                                  "default": 1.0},
+            "early_stopping": {"type": "bool", "default": True},
+            "scaling": {"type": "str", "choices": ["none", "standard"],
+                        "default": "none"},
+            "missing": {"type": "str", "choices": ["leave", "mean", "median"],
+                        "default": "leave"},
+            "val_seed": {"type": "int", "min": 0, "max": 99999,
+                         "default": 42},
+            "folds": {"type": "int", "min": 1, "max": 5, "default": 5},
+        },
+        preprocessing_options=["datetime_derive", "datetime_ordinal", "datetime_drop",
+                               "missing_value_native", "frequency_encoding"],
+        validation_schemes=["stratified_kfold", "single_holdout"],
+        default_max_train_rows=50000,
+        renderer="tabular_histgb",
+        default_preprocessing=[],
+        resource_model="sklearn_cost_v1",
+        gpu=False,
+        description="HistGradientBoosting with content-verified datetime "
+                    "columns derived to calendar/elapsed features (year, "
+                    "month, day, weekday, hour, seconds-since-median) so "
+                    "trees never ordinal-encode timestamps."),
     MethodSpec(
         method_id="tabular.neural.mlp.v1",
         family="neural_net",
@@ -176,10 +240,12 @@ BUILTIN_SPECS: List[MethodSpec] = [
                          "default": 42},
             "folds": {"type": "int", "min": 1, "max": 5, "default": 3},
         },
-        preprocessing_options=["missing_value_impute", "frequency_encoding",
+        preprocessing_options=["datetime_derive", "datetime_ordinal", "datetime_drop", "missing_value_impute", "frequency_encoding",
                                "standard_scaling"],
         validation_schemes=["stratified_kfold", "single_holdout"],
+        default_max_train_rows=50000,
         renderer="tabular_mlp",
+        default_preprocessing=["missing_value_impute", "standard_scaling"],
         resource_model="sklearn_cost_v1",
         gpu=False,
         description="MLPClassifier/MLPRegressor on scaled tabular features."),
@@ -222,7 +288,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=["cached_image_arrays", "imagenet_norm",
                                "pretrained_weight_cache"],
         validation_schemes=["stratified_kfold", "single_holdout"],
+        default_max_train_rows=20000,
         renderer="image_embedding_timm",
+        default_preprocessing=["cached_image_arrays", "imagenet_norm", "pretrained_weight_cache"],
         resource_model="timm_embed_cost_v1",
         gpu=True,
         description="Pretrained timm feature extractor over cached image "
@@ -267,7 +335,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=["cached_image_arrays", "imagenet_norm",
                                "pretrained_weight_cache", "flip_augment"],
         validation_schemes=["single_holdout"],
+        default_max_train_rows=20000,
         renderer="image_finetune_timm",
+        default_preprocessing=["cached_image_arrays", "imagenet_norm", "pretrained_weight_cache"],
         resource_model="timm_finetune_cost_v1",
         gpu=True,
         description="Short fine-tune of a pretrained timm model on cached "
@@ -323,7 +393,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=["cached_image_arrays", "imagenet_norm",
                                "pretrained_weight_cache", "flip_augment"],
         validation_schemes=["single_holdout"],
+        default_max_train_rows=20000,
         renderer="image_finetune_timm_v2",
+        default_preprocessing=["cached_image_arrays", "imagenet_norm", "pretrained_weight_cache"],
         resource_model="timm_finetune_cost_v1",
         gpu=True,
         description="Longer pretrained timm fine-tune (up to 12 epochs, "
@@ -378,7 +450,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=["cached_image_arrays", "imagenet_norm",
                                "pretrained_weight_cache", "flip_augment"],
         validation_schemes=["single_holdout"],
+        default_max_train_rows=20000,
         renderer="image_finetune_ensemble",
+        default_preprocessing=["cached_image_arrays", "imagenet_norm", "pretrained_weight_cache"],
         resource_model="timm_finetune_cost_v1",
         gpu=True,
         description="Ensemble fine-tune: up to 3 model architectures x 2 "
@@ -403,6 +477,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=[],
         validation_schemes=["single_holdout"],
         renderer="image_pixel_regression",
+        default_preprocessing=[],
+        default_validation="single_holdout",
+        validation_policy="fixed",
         resource_model="pixel_sklearn_cost_v1",
         gpu=False,
         description="Deterministic pixel-level baseline for image-to-image "
@@ -427,6 +504,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=[],
         validation_schemes=["single_holdout"],
         renderer="image_mask_rle_baseline",
+        default_preprocessing=[],
+        default_validation="single_holdout",
+        validation_policy="fixed",
         resource_model="pixel_sklearn_cost_v1",
         gpu=False,
         description="Deterministic RLE-mask baseline (empty or dense masks): "
@@ -447,6 +527,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=[],
         validation_schemes=["single_holdout"],
         renderer="image_detection_bbox_baseline",
+        default_preprocessing=[],
+        default_validation="single_holdout",
+        validation_policy="fixed",
         resource_model="pixel_sklearn_cost_v1",
         gpu=False,
         description="Deterministic bbox baseline: no predicted boxes in the "
@@ -468,6 +551,9 @@ BUILTIN_SPECS: List[MethodSpec] = [
         preprocessing_options=[],
         validation_schemes=["single_holdout"],
         renderer="audio_tabular_baseline",
+        default_preprocessing=[],
+        default_validation="single_holdout",
+        validation_policy="fixed",
         resource_model="sklearn_cost_v1",
         gpu=False,
         description="Deterministic audio baseline: majority class (or "
@@ -497,9 +583,11 @@ BUILTIN_SPECS: List[MethodSpec] = [
                          "default": 42},
             "folds": {"type": "int", "min": 1, "max": 5, "default": 3},
         },
-        preprocessing_options=["frequency_encoding", "missing_value_impute"],
+        preprocessing_options=["datetime_derive", "datetime_ordinal", "datetime_drop", "frequency_encoding", "missing_value_impute"],
         validation_schemes=["stratified_kfold", "single_holdout"],
+        default_max_train_rows=50000,
         renderer="ensemble_sklearn_soft_vote",
+        default_preprocessing=["missing_value_impute"],
         resource_model="sklearn_ensemble_cost_v1",
         gpu=False,
         description="Soft-vote ensemble of up to 3 tabular sklearn methods "
@@ -533,9 +621,10 @@ BUILTIN_SPECS: List[MethodSpec] = [
                          "default": 42},
             "folds": {"type": "int", "min": 1, "max": 5, "default": 3},
         },
-        preprocessing_options=["tfidf_vectorization"],
+        preprocessing_options=["datetime_derive", "datetime_ordinal", "datetime_drop", "tfidf_vectorization"],
         validation_schemes=["stratified_kfold", "single_holdout"],
         renderer="text_tfidf_linear",
+        default_preprocessing=["tfidf_vectorization"],
         resource_model="sklearn_cost_v1",
         gpu=False,
         description="TF-IDF vectorization of content-verified text columns "
@@ -571,9 +660,10 @@ BUILTIN_SPECS: List[MethodSpec] = [
                          "default": 42},
             "folds": {"type": "int", "min": 1, "max": 5, "default": 3},
         },
-        preprocessing_options=["tfidf_vectorization"],
+        preprocessing_options=["datetime_derive", "datetime_ordinal", "datetime_drop", "tfidf_vectorization"],
         validation_schemes=["stratified_kfold", "single_holdout"],
         renderer="text_tfidf_mlp",
+        default_preprocessing=["tfidf_vectorization"],
         resource_model="sklearn_cost_v1",
         gpu=False,
         description="TF-IDF vectorization plus MLPClassifier/MLPRegressor "
@@ -603,7 +693,11 @@ BUILTIN_SPECS: List[MethodSpec] = [
         },
         preprocessing_options=["lag_features"],
         validation_schemes=["time_holdout"],
+        default_max_train_rows=50000,
         renderer="timeseries_lag",
+        default_preprocessing=["lag_features"],
+        default_validation="time_holdout",
+        validation_policy="fixed",
         resource_model="sklearn_cost_v1",
         gpu=False,
         description="Time-ordered lag / rolling features over the detected "

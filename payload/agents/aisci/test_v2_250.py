@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """v2.5.0 offline tests: declarative method architecture (zero if/else routing).
 
 Frozen v2.5 contracts verified here:
@@ -67,6 +67,9 @@ def test_no_competition_names():
     bad = []
     for path in HERE.rglob("*.py"):
         rel = str(path.relative_to(HERE))
+        if any(part.startswith(".v2_backup") or part == "__pycache__"
+               for part in rel.split("/")):
+            continue  # install backups / caches are not logic modules
         if path.name == "metrics_registry.py" or path.name.startswith("test_"):
             continue
         src = path.read_text(encoding="utf-8", errors="replace")

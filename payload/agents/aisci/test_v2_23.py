@@ -887,7 +887,7 @@ def test_text_compiled_code_end_to_end():
             "TASK_TYPE": "classification",
         })
         r = subprocess.run([sys.executable, str(script)], capture_output=True,
-                           text=True, timeout=300, env=env, cwd=str(tmp))
+                           text=True, timeout=int(os.environ.get("V2_TEST_HARNESS_TIMEOUT", "300")), env=env, cwd=str(tmp))
         detail = ((r.stdout or "")[-600:] + (r.stderr or "")[-600:])
         check("text trial exits 0", r.returncode == 0, detail)
         oof = tmp / "oof.csv"
@@ -955,7 +955,7 @@ def test_timeseries_compiled_code_end_to_end():
             "TASK_TYPE": "timeseries",
         })
         r = subprocess.run([sys.executable, str(script)], capture_output=True,
-                           text=True, timeout=300, env=env, cwd=str(tmp))
+                           text=True, timeout=int(os.environ.get("V2_TEST_HARNESS_TIMEOUT", "300")), env=env, cwd=str(tmp))
         detail = ((r.stdout or "")[-600:] + (r.stderr or "")[-600:])
         check("timeseries trial exits 0", r.returncode == 0, detail)
         check("timeseries oof written", (tmp / "oof.csv").is_file(), "")

@@ -43,6 +43,10 @@ test_v2_238.py
 test_v2_239.py
 test_v2_240.py
 test_v2_250.py
+test_v2_251.py
+test_v2_252.py
+test_v2_254.py
+test_v2_255.py
 test_v2_closed_loop.py
 test_v2_contracts.py
 test_v2_hera.py

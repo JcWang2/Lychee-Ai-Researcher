@@ -245,6 +245,11 @@ class Planner:
             data = {}
         resource = dict(resource or {})
         budget_max = int(resource.get("max_budget_seconds") or 1800)
+        # v2.5.4: platform budget floor derived from the runtime estimate
+        # (half of t_est). The LLM may still choose within
+        # [min_budget, max_budget]; the floor stops over-optimistic cheap
+        # budgets from guaranteeing a timeout on large datasets.
+        budget_min = max(300, int(resource.get("min_budget_seconds") or 300))
         plan_data = dict(_FALLBACK_PLAN)
         for key in ("hypothesis", "approach_type", "expected_improvement",
                     "risk", "method_detail", "research_intent",
@@ -273,7 +278,8 @@ class Planner:
             method_detail["children"] = children
         plan_data["method_detail"] = method_detail
         plan_budget = int(plan_data.get("max_budget_seconds") or budget_max)
-        plan_budget = max(300, min(budget_max, plan_budget))
+        plan_budget = max(budget_min, min(budget_max, plan_budget))
+        plan_budget = min(budget_max, plan_budget)
         return ResearchPlan(
             round_num=round_num,
             hypothesis=str(plan_data.get("hypothesis", _FALLBACK_PLAN["hypothesis"])),

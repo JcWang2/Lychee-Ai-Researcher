@@ -38,7 +38,8 @@ MAX_BRANCHES = 24
 # control logic.
 
 RESOURCE_KEYS = (
-    "max_budget_seconds", "image_size_max", "epochs_min", "epochs_max",
+    "max_budget_seconds", "min_budget_seconds", "image_size_max",
+    "epochs_min", "epochs_max",
     "max_folds", "train_rows_cap", "batch_hint", "model_scale_ceiling",
     "t_est_seconds", "pretrained_policy", "derived_from",
 )
@@ -320,8 +321,16 @@ class ResourceProfiler:
             epochs_max = min(self._EPOCHS_BONUS_GPU[modality],
                              epochs_max + _bump)
 
+        # v2.5.4: trial-timeout floor = half the platform's own runtime
+        # estimate (t_est), so an over-optimistic LLM budget can never
+        # schedule a trial that is killed before the derived estimate says
+        # it should finish (rc=-9 timeouts on large-row tasks). t_est
+        # self-corrects via F0 calibration after the first success.
+        min_budget = max(300, int(t_est * 0.5))
+        min_budget = min(min_budget, max_budget)
         return {
             "max_budget_seconds": max_budget,
+            "min_budget_seconds": min_budget,
             "image_size_max": image_size_max,
             "epochs_min": epochs_min,
             "epochs_max": epochs_max,
@@ -378,6 +387,9 @@ def _clamp_resource(res: dict) -> dict:
                          else max(8, int(out["batch_hint"])))
     out["t_est_seconds"] = max(300, min(7200, int(
         out.get("t_est_seconds") or out["max_budget_seconds"])))
+    out["min_budget_seconds"] = max(300, min(
+        int(out.get("max_budget_seconds") or 7200),
+        int(out.get("min_budget_seconds") or 300)))
     out["pretrained_policy"] = str(out.get("pretrained_policy") or "cache")
     return out
 

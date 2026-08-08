@@ -153,11 +153,30 @@ compile_payload() {
 
 run_offline_tests() {
     local dest="$1"
-    for test in test_v2_metrics.py test_v2_contracts.py test_v2_pact.py test_v2_hera.py \
-                test_v2_stage_controller.py test_v2_resource_profiler.py \
-                test_v2_l1_transactional.py test_v2_closed_loop.py test_v2_23.py \
-                test_v2_234.py test_v2_235.py test_v2_236.py test_v2_237.py \
-                test_v2_240.py test_v2_238.py test_v2_239.py test_v2_250.py; do
+    local missing=0
+    local test
+    local TESTS="test_v2_metrics.py test_v2_contracts.py test_v2_pact.py test_v2_hera.py \
+                 test_v2_stage_controller.py test_v2_resource_profiler.py \
+                 test_v2_l1_transactional.py test_v2_closed_loop.py test_v2_23.py \
+                 test_v2_234.py test_v2_235.py test_v2_236.py test_v2_237.py \
+                 test_v2_240.py test_v2_238.py test_v2_239.py test_v2_250.py \
+                 test_v2_251.py test_v2_252.py test_v2_254.py test_v2_255.py"
+    # Guard: every test in the run list must be shipped in the payload AND
+    # actually installed into the target. Catches packaging omissions early
+    # (e.g. a new test file missing from PAYLOAD_FILES.txt) with a clear
+    # message instead of a confusing "No such file or directory" exit.
+    for test in $TESTS; do
+        if ! grep -qx "$test" "$FILE_LIST"; then
+            printf 'V2_INSTALL=FAIL:test_missing_from_payload:%s\n' "$test" >&2
+            missing=$((missing + 1))
+        fi
+        if [ ! -f "$dest/$test" ]; then
+            printf 'V2_INSTALL=FAIL:test_missing_in_target:%s\n' "$test" >&2
+            missing=$((missing + 1))
+        fi
+    done
+    [ "$missing" -eq 0 ] || exit 1
+    for test in $TESTS; do
         (
             cd "$dest"
             "$python_bin" "$test"

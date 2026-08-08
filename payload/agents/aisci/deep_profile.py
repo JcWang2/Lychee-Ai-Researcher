@@ -27,7 +27,12 @@ DEFAULT_MAX_COLS = 50
 _ID_NAME_HINTS = ("id", "Id", "ID", "index", "row_id", "rowid", "uid", "key",
                   "row", "sample_id", "sampleid")
 _TIME_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
-                 "%Y/%m/%d", "%Y%m%d", "%d/%m/%Y", "%m/%d/%Y")
+                 "%Y/%m/%d", "%Y%m%d", "%d/%m/%Y", "%m/%d/%Y",
+                 "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f",
+                 "%Y-%m-%d %H:%M:%S.%f", "%d-%b-%Y", "%b %d, %Y",
+                 "%B %d, %Y")
+_TZ_SUFFIX_RE = __import__("re").compile(
+    r"(?i)(?:\s*(?:utc|gmt|z|[+-]\d{2}:?\d{2})\s*)$")
 
 
 def _read_sample(path, sample_rows: int, max_cols: int):
@@ -160,11 +165,18 @@ def _parse_time(v: str):
             return datetime.utcfromtimestamp(f)
     except ValueError:
         pass
-    for fmt in _TIME_FORMATS:
-        try:
-            return datetime.strptime(v, fmt)
-        except ValueError:
-            continue
+    candidates = [v]
+    m = _TZ_SUFFIX_RE.search(v)
+    if m:
+        stripped = v[:m.start()].strip()
+        if stripped:
+            candidates.append(stripped)
+    for cand in candidates:
+        for fmt in _TIME_FORMATS:
+            try:
+                return datetime.strptime(cand, fmt)
+            except ValueError:
+                continue
     return None
 
 
