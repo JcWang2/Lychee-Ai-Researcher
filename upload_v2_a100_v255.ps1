@@ -7,10 +7,10 @@ $ErrorActionPreference = "Stop"
 $SshHostName = "219.223.251.156"
 $SshPort = 9000
 $SshUser = "xzr"
-$PackageName = "ai_scientist_execution_layer_v2_20260807_v255.tar.gz"
+$PackageName = "ai_scientist_execution_layer_v2_20260808_v255.tar.gz"
 # Self-locating: works both from the deliveries root and from inside the
 # extracted package folder (both have the tar/sidecar available).
-$PackageDir = Join-Path $PSScriptRoot "ai_scientist_execution_layer_v2_20260807_v255"
+$PackageDir = Join-Path $PSScriptRoot "ai_scientist_execution_layer_v2_20260808_v255"
 if (Test-Path -LiteralPath (Join-Path $PackageDir $PackageName)) {
     $DeliveryDir = $PackageDir
 } else {
@@ -51,8 +51,8 @@ Write-Host "UPLOAD_VERIFIED=YES"
 Write-Host "PACKAGE_SHA256=$ObservedSha256"
 Write-Host "Next (on the server) install v2.5.5 into the deploy tree:"
 Write-Host "  cd /mnt/data/stage42_delivery/incoming"
-Write-Host "  tar -xzf ai_scientist_execution_layer_v2_20260807_v255.tar.gz"
-Write-Host "  cd ai_scientist_execution_layer_v2_20260807_v255 && sha256sum -c MANIFEST.sha256"
+Write-Host "  tar -xzf ai_scientist_execution_layer_v2_20260808_v255.tar.gz"
+Write-Host "  cd ai_scientist_execution_layer_v2_20260808_v255 && sha256sum -c MANIFEST.sha256"
 Write-Host "  export DEPLOY_ROOT=/mnt/data/stage42_deployments/20260803T000000Z_legacy_l1_v2"
 Write-Host "  bash install_v2_execution_layer.sh --target `$DEPLOY_ROOT/MLE-bench/agents/aisci --run-tests"
 Write-Host '  # expect V2_PACKAGE_MANIFEST=PASS / V2_PYCOMPILE=PASS / V2_OFFLINE_TESTS=PASS (incl. test_v2_255) / V2_INSTALL_VERIFY=PASS'

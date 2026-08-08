@@ -3,11 +3,11 @@
 # Continuously refreshing monitor: prints a compact snapshot only when state
 # changes, and tails the live task logs ([llm] calls + daemon details).
 # Usage:
-#   bash monitor_v2_v254_live.sh                 # auto-pick newest run
-#   bash monitor_v2_v254_live.sh <STAMP>         # pin a specific run
-#   FOLLOW_TASK=hubmap-kidney-segmentation bash monitor_v2_v254_live.sh <STAMP>
-#   REFRESH_SECS=3 bash monitor_v2_v254_live.sh  # faster refresh
-#   STATE_ROOT=/mnt/data/v2_state_lite bash monitor_v2_v254_live.sh   # lite trio
+#   bash monitor_v2_v255_live.sh                 # auto-pick newest run
+#   bash monitor_v2_v255_live.sh <STAMP>         # pin a specific run
+#   FOLLOW_TASK=hubmap-kidney-segmentation bash monitor_v2_v255_live.sh <STAMP>
+#   REFRESH_SECS=3 bash monitor_v2_v255_live.sh  # faster refresh
+#   STATE_ROOT=/mnt/data/v2_state_lite bash monitor_v2_v255_live.sh   # lite trio
 set +e
 INCOMING=/mnt/data/stage42_delivery/incoming
 if [ -n "${TASK_LIST:-}" ]; then
@@ -138,7 +138,7 @@ show_header() {
     | awk '{printf "  pid=%s cpu=%s mem=%s start=%s %s\n", $2, $3, $4, $9, substr($0, index($0,$11), 110)}'
   echo "----- HINT -----"
   echo "  Full log: tail -n 200 $INCOMING/run_v2_<task>_${STAMP}.log   (daemon: ls -t ${ACTIVE_ROOT:-$STATE_ROOT}/run_v2_<task>_${STAMP}/host_daemon_*.log)"
-  echo "  Follow one task: FOLLOW_TASK=<task> bash monitor_v2_v254_live.sh $STAMP"
+  echo "  Follow one task: FOLLOW_TASK=<task> bash monitor_v2_v255_live.sh $STAMP"
 }
 
 ACTIVE_ROOT="$(root_now)"

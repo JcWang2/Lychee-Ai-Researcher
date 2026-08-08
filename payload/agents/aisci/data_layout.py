@@ -657,7 +657,7 @@ def _synthesize_dir_label_table(public_dir: Path) -> Optional[Path]:
 
 def _synthesize_sample_train(public_dir: Path, sample: Path) -> Optional[Path]:
     """Copy the sample submission as the train table when no train table
-    exists (vesuvius / contrails / mlsp shapes). The placeholder target
+    exists (label-free image / detection / audio shapes). The placeholder target
     values let content sniffers (RLE / JSON box) classify the task; the
     deterministic baselines never train on them."""
     import csv as _csv
@@ -699,12 +699,56 @@ def _synthesize_id_only_test(public_dir: Path, sample: Path) -> Optional[Path]:
     return out
 
 
+def _synthesize_prefix_label_table(public_dir: Path,
+                                   id_col: str = "file",
+                                   label_col: str = "label") -> Optional[Path]:
+    """Flat image dir whose FILE NAME prefixes carry the labels
+    (cat.0.jpg / dog.1.jpg style): write public/train.csv as
+    (id_col, label_col) rows where the id is the file name relative to the
+    image dir. Guardrails: >= 50 flat image files, 2..64 distinct prefixes,
+    and not every prefix is numeric (a plain numbered image dir must never
+    trigger). Same evidence floor as the daemon-side synthesis. Generic;
+    never competition-specific."""
+    import csv as _csv
+    train_dir = _first_image_dir(public_dir, _TRAIN_IMAGE_DIR_NAMES)
+    if train_dir is None:
+        return None
+    try:
+        flat = [f for f in sorted(train_dir.iterdir())
+                if f.is_file() and _is_image_file(f)]
+    except OSError:
+        return None
+    if len(flat) < 50:
+        return None
+    tokens = {}
+    for f in flat:
+        token = f.stem.split(".", 1)[0].strip() or f.stem
+        tokens.setdefault(token, []).append(f)
+    if not (2 <= len(tokens) <= 64):
+        return None
+    if all(tok.isdigit() for tok in tokens):
+        return None
+    rows = []
+    for token in sorted(tokens):
+        for f in tokens[token]:
+            rows.append((f.name, token))
+    if not rows:
+        return None
+    out = public_dir / "train.csv"
+    if not out.is_file():
+        with open(out, "w", newline="", encoding="utf-8") as fh:
+            _csv.writer(fh).writerows([(id_col, label_col)] + rows)
+    return out
+
+
 def _synthesize_missing_tables(public_dir: Path, root: Path, sample: Optional[Path],
                                train_path: Optional[Path],
                                test_path: Optional[Path]):
-    """v2.3.8: label-free table synthesis for audio / mask / detection
-    layouts that ship no train table (and sometimes no test table).
-    Returns (train_path, test_path) or None when impossible."""
+    """v2.3.8/v2.5.5: label-free table synthesis for audio / mask /
+    detection / prefix-labeled image layouts that ship no train table
+    (and sometimes no test table). Order: dir labels -> filename-prefix
+    labels -> placeholder sample copy (last resort). Returns
+    (train_path, test_path) or None when impossible."""
     import csv as _csv
     if sample is None:
         return None
@@ -721,6 +765,24 @@ def _synthesize_missing_tables(public_dir: Path, root: Path, sample: Optional[Pa
         return None
     if train_path is None:
         tp = _synthesize_dir_label_table(public_dir)
+        if tp is None:
+            # v2.5.5: filename-prefix labels BEFORE
+            # the placeholder sample copy, so image tasks train on real
+            # labels instead of all-zero sample rows. Column names mirror
+            # the sample submission (generic contract).
+            id_col, label_col = "file", "label"
+            try:
+                with open(sample, "r", encoding="utf-8", errors="replace",
+                          newline="") as fh:
+                    s_head = next(_csv.reader(fh), [])
+                if s_head:
+                    id_col = str(s_head[0])
+                    if len(s_head) > 1:
+                        label_col = str(s_head[1])
+            except OSError:
+                pass
+            tp = _synthesize_prefix_label_table(public_dir,
+                                                id_col, label_col)
         if tp is None:
             tp = _synthesize_sample_train(public_dir, sample)
         if tp is None:
@@ -1081,8 +1143,8 @@ def synthesize_train_labels(data_dir) -> dict:
         (plant-seedlings train/<species>/*.png, iwildcam-style folders) ->
         (file, label) rows from the subdir names;
       * flat-prefix mode: flat train image dir where basenames carry a
-        short repeated label token before the first '.' (dogs-vs-cats
-        cat.0.jpg / dog.1.jpg) with 2..64 distinct tokens and >= 50 image
+        short repeated label token before the first '.' (cat.0.jpg /
+        dog.1.jpg) with 2..64 distinct tokens and >= 50 image
         files (image-evidence floor) -> (file, token) rows.
     Column names mirror the sample submission (id column first, first
     non-id column as label) so the analyzer's sample-driven target and the

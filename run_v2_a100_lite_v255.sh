@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # run_v2_a100_lite_v255.sh - v2.5.5 MLE-Lite fleet launcher (21-loop concurrent).
-# v2.5.5 (pushed): generic MLE-Bench data-layout robustness.
+# v2.5.5 (pushed): generic MLE-Bench data-layout + sample-column fixes.
 #   - data_layout: localized-prefix tables (<prefix>_train.csv(.zip) with
 #     <prefix>_test* / <prefix>_sample_submission* siblings) are materialized
-#     to canonical names automatically (text-normalization en_/ru_ style);
-#     prefix-agnostic glob, no competition-name hardcoding.
+#     to canonical names automatically (en_/ru_ style); prefix-agnostic
+#     glob, no competition-name hardcoding.
+#   - no-id sample rule: target = sample columns NOT in test.csv; id/
+#     passthrough = sample columns IN test.csv (sample order, verbatim).
+#     Fixes Insult,Date,Comment-style headers where column 0 is the target
+#     (5 templates + hera/analyzer; TSV headers delimiter-aware).
+#   - filename-prefix image labels (cat.0.jpg / dog.1.jpg): resolver
+#     synthesizes a REAL train.csv before the all-zero sample copy
+#     (>=50 files, 2..64 non-numeric prefixes guard).
 #   - launch preflight: TASK_DATA_OK now means resolve_dataset_layout
 #     succeeds; layout gaps FAIL loudly at startup instead of a silent
 #     closed-loop crash (V2_DATA_PREFLIGHT=0 disables).
-#   - test_v2_255.py: offline coverage for both behaviors.
+#   - test_v2_255.py: 71 offline assertions for all of the above.
 # v2.5.4 (delivery-only, NOT pushed): declarative row cap + budget floor.
 #   - MethodSpec.default_max_train_rows (50000 tabular/timeseries/ensemble,
 #     20000 image): normalize() injects it into resource_request so compiled

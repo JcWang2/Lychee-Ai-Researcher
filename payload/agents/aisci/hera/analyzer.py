@@ -492,28 +492,31 @@ class Analyzer:
         return str(header[-1]) if header else ""
 
     def _sample_driven_target(self, header, fallback):
-        # v2.3.4: sample-submission-driven target correction (generic).
-        # The sample submission's non-id columns are the ground-truth
-        # prediction columns; when one exists in the train header it wins
-        # over the header[-1] heuristic. Multi-output tasks keep the first
-        # sample target here; the compiled harness renders and predicts
-        # ALL sample target columns it finds in train.
+        # v2.5.5: sample-submission-driven target correction (generic).
+        # Ground-truth prediction columns are exactly the sample-submission
+        # columns that are NOT in test.csv; the first one present in the
+        # train header wins. Handles no-id sample headers (target first,
+        # e.g. Insult,Date,Comment) where column 0 is the target. Multi-
+        # output tasks keep the first sample target here; the compiled
+        # harness renders and predicts ALL sample target columns in train.
         sp = self.layout.sample_submission_path
         if sp is None or not os.path.isfile(str(sp)):
             return fallback
+        test_lower = self._test_header_lower()
         try:
             with open(str(sp), "r", encoding="utf-8", errors="replace",
                       newline="") as fh:
                 sample = list(csv.reader(fh))
         except OSError:
             return fallback
-        if not sample or len(sample) < 2 or len(sample[0]) < 2:
+        if not sample or len(sample) < 2 or len(sample[0]) < 1:
             return fallback
-        s_header = [str(c) for c in sample[0]]
-        id_col = str(s_header[0])
-        for name in s_header[1:]:
-            if str(name) in header and str(name) != id_col:
-                return str(name)
+        for name in sample[0]:
+            sname = str(name)
+            if sname.strip().lower() in test_lower:
+                continue
+            if sname in header:
+                return sname
         return fallback
     def _missing_columns(self, rows: List[List[str]], header: List[str]) -> List[str]:
         if not header:
@@ -806,9 +809,30 @@ class Analyzer:
                 return c
         return cols[0]
 
+    def _test_header_lower(self) -> set:
+        """Lower-cased header of the resolved test table (empty when the
+        layout has no test table). Sample passthrough/id columns are
+        exactly the sample columns that appear here. Uses the table
+        delimiter (csv vs tsv) so tab-separated headers are not read as
+        one comma-joined cell."""
+        try:
+            tp = self.layout.test_path
+            if tp is None or not os.path.isfile(str(tp)):
+                return set()
+            with open(str(tp), "r", encoding="utf-8", errors="replace",
+                      newline="") as fh:
+                test_header = next(csv.reader(fh,
+                                               delimiter=table_delimiter(tp)),
+                                   [])
+            return {str(c).strip().lower() for c in test_header}
+        except (OSError, ValueError):
+            return set()
+
     def _id_column(self, header: List[str]) -> str:
-        """Mirror the compiled harness id rule: sample-submission first
-        column, else an id-named column, else the first column. Never by
+        """Mirror the compiled harness id rule: the FIRST sample-submission
+        column that also appears in test.csv is the join id (a no-id sample
+        like Insult,Date,Comment resolves to Date, never to column 0);
+        else an id-named column, else the first column. Never by
         competition name."""
         if header:
             try:
@@ -817,9 +841,12 @@ class Analyzer:
                     with open(self.layout.sample_submission_path, "r",
                               encoding="utf-8", errors="replace",
                               newline="") as fh:
-                        first = next(csv.reader(fh), None)
-                    if first and first[0] in header:
-                        return str(first[0])
+                        s_header = next(csv.reader(fh), [])
+                    test_lower = self._test_header_lower()
+                    for name in s_header:
+                        if str(name).strip().lower() in test_lower \
+                                and str(name) in header:
+                            return str(name)
             except OSError:
                 pass
             lowered = [str(h).strip().lower() for h in header]
@@ -837,11 +864,14 @@ class Analyzer:
         return ""
 
     def _sample_target_columns(self, header: List[str]) -> List[str]:
-        """Columns declared in the sample-submission header are prediction
-        targets by definition, never features. The mixed-data dominance
-        rule uses this so multi-label text tasks (jigsaw-toxic, google-quest
-        put ALL their labels in the sample file) are not mistaken for
-        tabular data. Generic - mirror of the compiled harness contract."""
+        """Columns declared in the sample-submission header AND absent from
+        test.csv are prediction targets by definition, never features (the
+        sample columns that ARE in test are id/passthrough columns). The
+        mixed-data dominance rule uses this so multi-label text tasks
+        (jigsaw-toxic, google-quest put ALL their labels in the sample
+        file) are not mistaken for tabular data, and no-id samples whose
+        FIRST column is the target (Insult,Date,Comment) resolve too.
+        Generic - mirror of the compiled harness contract."""
         sp = self.layout.sample_submission_path
         if sp is None or not os.path.isfile(str(sp)):
             return []
@@ -854,8 +884,10 @@ class Analyzer:
         if not sample or not sample[0]:
             return []
         s_lower = {str(c).strip().lower() for c in sample[0]}
+        test_lower = self._test_header_lower()
         return [str(h) for h in header
-                if str(h).strip().lower() in s_lower]
+                if str(h).strip().lower() in s_lower
+                and str(h).strip().lower() not in test_lower]
 
     def _text_dominates(self, profile: AnalysisProfile) -> bool:
         """v2.3.3+ mixed-data rule: free-text columns must dominate the
