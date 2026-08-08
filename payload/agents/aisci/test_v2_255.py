@@ -233,6 +233,55 @@ def test_prefix_image_labels_resolve():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+
+def test_stale_placeholder_does_not_block_prefix_labels():
+    # Regression: an OLD resolver (pre-v2.5.5) wrote the sample-submission
+    # copy into public/train.csv when no table existed. That stale
+    # placeholder must NOT shadow real filename-prefix labels: resolve
+    # detects the placeholder and regenerates the real train table.
+    tmp = Path(tempfile.mkdtemp(prefix="v255_stale_placeholder_"))
+    try:
+        pub = tmp / "prepared" / "public"
+        priv = tmp / "prepared" / "private"
+        (pub / "train").mkdir(parents=True)
+        (pub / "test").mkdir()
+        priv.mkdir()
+        for i in range(60):
+            _write_png(pub / "train" / ("cat.%d.jpg" % i))
+            _write_png(pub / "train" / ("dog.%d.jpg" % i))
+        for i in range(5):
+            _write_png(pub / "test" / ("%d.jpg" % i))
+        _write(pub / "sample_submission.csv",
+               ["id,label", "0,cat", "1,dog", "2,cat", "3,dog", "4,cat"])
+        _write(pub / "test.csv", ["id", "0", "1", "2", "3", "4"])
+        _write(priv / "answers.csv",
+               ["id,label", "0,cat", "1,dog", "2,cat", "3,dog", "4,cat"])
+        # stale placeholder = exact sample-submission copy (old resolver)
+        with open(pub / "sample_submission.csv", "rb") as fh:
+            _write_bytes = fh.read()
+        (pub / "train.csv").write_bytes(_write_bytes)
+        d = resolve_dataset_layout(str(tmp))
+        with open(str(d.train_path), newline="") as fh:
+            rows = list(csv.reader(fh))
+        check("stale placeholder -> real header id,label",
+              bool(rows) and rows[0] == ["id", "label"],
+              str(rows[0] if rows else None))
+        labels = sorted({r[1] for r in rows[1:] if len(r) > 1})
+        check("stale placeholder -> real cat/dog labels",
+              labels == ["cat", "dog"], str(labels))
+        check("stale placeholder -> every image row present",
+              len(rows) - 1 == 120, str(len(rows) - 1))
+        check("stale placeholder -> placeholder overwritten",
+              len(rows) - 1 != 5, str(len(rows) - 1))
+        d2 = resolve_dataset_layout(str(tmp))
+        with open(str(d2.train_path), newline="") as fh:
+            rows2 = list(csv.reader(fh))
+        check("stale placeholder -> heal idempotent",
+              len(rows2) - 1 == 120, str(len(rows2) - 1))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_plain_numbered_images_do_not_synthesize():
     # A flat image dir with plain numeric names must NOT synthesize a
     # bogus label table (all-numeric prefixes are rejected).
@@ -408,6 +457,7 @@ def main():
     test_localized_plain_tables_resolve()
     test_broken_layout_raises()
     test_prefix_image_labels_resolve()
+    test_stale_placeholder_does_not_block_prefix_labels()
     test_plain_numbered_images_do_not_synthesize()
     test_no_id_sample_analyzer()
     test_no_id_sample_harness_end_to_end()

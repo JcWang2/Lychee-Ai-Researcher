@@ -619,6 +619,42 @@ def _count_audio_files(directory: Path, limit: int = 20000) -> int:
     return total
 
 
+
+def _sample_columns(sample: Path):
+    """Column names inherited from the sample submission header (generic
+    contract; id first, label/target second when present)."""
+    import csv as _csv
+    try:
+        with open(sample, "r", encoding="utf-8", errors="replace",
+                  newline="") as fh:
+            s_head = next(_csv.reader(fh), [])
+    except OSError:
+        return "file", "label"
+    if not s_head:
+        return "file", "label"
+    id_col = str(s_head[0])
+    label_col = str(s_head[1]) if len(s_head) > 1 else "label"
+    return id_col, label_col
+
+
+def _is_sample_placeholder_copy(train_path: Path, sample: Path) -> bool:
+    """True when train_path is the synthesized sample-submission copy
+    (placeholder written by _synthesize_sample_train). Such dummy tables
+    must never shadow real label evidence (dir names / filename prefixes):
+    a stale placeholder from an older resolver is regenerated on resolve."""
+    import csv as _csv
+    try:
+        with open(train_path, "r", encoding="utf-8", errors="replace",
+                  newline="") as fh:
+            a = list(_csv.reader(fh))
+        with open(sample, "r", encoding="utf-8", errors="replace",
+                  newline="") as fh:
+            b = list(_csv.reader(fh))
+    except OSError:
+        return False
+    return len(a) >= 2 and len(a) == len(b) and         all(x == y for x, y in zip(a, b))
+
+
 def _synthesize_dir_label_table(public_dir: Path) -> Optional[Path]:
     """Class-subdirectory train table (labels in DIRECTORY NAMES): when the
     public tree holds `train/audio/<label>/*.wav` or `train/<label>/*.wav`,
@@ -649,9 +685,10 @@ def _synthesize_dir_label_table(public_dir: Path) -> Optional[Path]:
     if not rows:
         return None
     out = public_dir / "train.csv"
-    if not out.is_file():
-        with open(out, "w", newline="", encoding="utf-8") as fh:
-            _csv.writer(fh).writerows([("fname", "label")] + rows)
+    # Overwrite stale synthesized tables (e.g. an old placeholder sample
+    # copy): real dir-label evidence wins.
+    with open(out, "w", newline="", encoding="utf-8") as fh:
+        _csv.writer(fh).writerows([("fname", "label")] + rows)
     return out
 
 
@@ -735,9 +772,10 @@ def _synthesize_prefix_label_table(public_dir: Path,
     if not rows:
         return None
     out = public_dir / "train.csv"
-    if not out.is_file():
-        with open(out, "w", newline="", encoding="utf-8") as fh:
-            _csv.writer(fh).writerows([(id_col, label_col)] + rows)
+    # Overwrite stale synthesized tables (e.g. an old placeholder sample
+    # copy): real filename-prefix labels win.
+    with open(out, "w", newline="", encoding="utf-8") as fh:
+        _csv.writer(fh).writerows([(id_col, label_col)] + rows)
     return out
 
 
@@ -770,17 +808,7 @@ def _synthesize_missing_tables(public_dir: Path, root: Path, sample: Optional[Pa
             # the placeholder sample copy, so image tasks train on real
             # labels instead of all-zero sample rows. Column names mirror
             # the sample submission (generic contract).
-            id_col, label_col = "file", "label"
-            try:
-                with open(sample, "r", encoding="utf-8", errors="replace",
-                          newline="") as fh:
-                    s_head = next(_csv.reader(fh), [])
-                if s_head:
-                    id_col = str(s_head[0])
-                    if len(s_head) > 1:
-                        label_col = str(s_head[1])
-            except OSError:
-                pass
+            id_col, label_col = _sample_columns(sample)
             tp = _synthesize_prefix_label_table(public_dir,
                                                 id_col, label_col)
         if tp is None:
@@ -933,6 +961,20 @@ def resolve_dataset_layout(data_dir, sample_path: Optional[str] = None) -> Datas
                 paired_target_dir=paired,
                 pixel_level=True,
             )
+        if train_path is not None and test_path is not None and \
+                sample is not None and \
+                train_path == public_dir / "train.csv" and \
+                _is_sample_placeholder_copy(train_path, sample):
+            # Stale placeholder (an older resolver copied the sample
+            # submission when no table existed): real label evidence in the
+            # tree (dir names / filename prefixes) wins over the dummy copy.
+            id_col, label_col = _sample_columns(sample)
+            real = _synthesize_dir_label_table(public_dir)
+            if real is None:
+                real = _synthesize_prefix_label_table(public_dir,
+                                                      id_col, label_col)
+            if real is not None:
+                train_path = real
         if train_path is None or test_path is None:
             # v2.3.8: no train/test table but a sample submission exists and
             # the tree holds image/audio content -> synthesize a train table
